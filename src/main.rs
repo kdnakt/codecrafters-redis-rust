@@ -15,11 +15,13 @@ fn main() {
             Ok(mut stream) => {
                 println!("accepted new connection");
                 let mut buf = [0; 128];
-                let n = stream.read(&mut buf).unwrap();
-                println!("incoming: {:?}", &buf[..n]);
-                let pong = String::from("+PONG\r\n");
-                let result = stream.write(pong.as_bytes());
-                println!("out: {:?}", result);
+                loop {
+                    let n = stream.read(&mut buf).unwrap();
+                    println!("incoming: {:?}", &buf[..n]);
+                    let pong = String::from("+PONG\r\n");
+                    let result = stream.write(pong.as_bytes());
+                    println!("out: {:?}", result);
+                }
             }
             Err(e) => {
                 println!("error: {}", e);
