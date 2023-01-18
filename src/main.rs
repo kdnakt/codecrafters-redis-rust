@@ -19,7 +19,8 @@ fn main() {
                     let mut buf = [0; 128];
                     loop {
                         let n = stream.read(&mut buf).unwrap();
-                        println!("incoming: {:?}", &buf[..n]);
+                        let message = std::str::from_utf8(&buf[..n]).unwrap_or("");
+                        println!("incoming: {message}");
                         let pong = String::from("+PONG\r\n");
                         let result = stream.write(pong.as_bytes());
                         println!("out: {:?}", result);
