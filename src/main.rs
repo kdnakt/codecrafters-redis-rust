@@ -3,6 +3,29 @@ use std::net::{TcpListener, TcpStream};
 use std::io::prelude::*;
 use std::thread::spawn;
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+#[derive(Debug)]
+struct Cache {
+    value: String,
+    px: Option<Instant>,
+}
+
+impl Cache {
+    fn new(value: String) -> Cache {
+        Cache {
+            value,
+            px: None
+        }
+    }
+
+    fn newpx(value: String, px: i32) -> Cache {
+        Cache {
+            value,
+            px: Some(Instant::now() + Duration::new(0, (px as u32) * 1000000))
+        }
+    }
+}
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -15,7 +38,7 @@ fn main() {
     for result in listener.incoming() {
         spawn(move || {
             // TODO: share cache between connections
-            let mut cache: HashMap<String, String> = HashMap::new();
+            let mut cache: HashMap<String, Cache> = HashMap::new();
             match result {
                 Ok(mut stream) => {
                     println!("accepted new connection");
@@ -34,7 +57,12 @@ fn main() {
                                 echo(&mut stream, req[4]);
                             },
                             "set" | "SET" => {
-                                set(&mut stream, req[4], req[6], &mut cache);
+                                if 10 < req.len() {
+                                    // TODO: check if 8th is px
+                                    set_px(&mut stream, req[4], req[6], req[10], &mut cache);
+                                } else {
+                                    set(&mut stream, req[4], req[6], &mut cache);
+                                }
                             },
                             "get" | "GET" => {
                                 get(&mut stream, req[4], &cache);
@@ -69,8 +97,8 @@ fn echo(stream: &mut TcpStream, message: &str) {
     println!("out: {:?}", result);
 }
 
-fn set(stream: &mut TcpStream, key: &str, value: &str, cache: &mut HashMap<String, String>) {
-    cache.insert(key.to_string(), value.to_string());
+fn set(stream: &mut TcpStream, key: &str, value: &str, cache: &mut HashMap<String, Cache>) {
+    cache.insert(key.to_string(), Cache::new(value.to_string()));
     println!("cache={:?}", cache);
     let msg = format!("$2\r\nOK\r\n");
     println!("out: {msg}");
@@ -78,16 +106,49 @@ fn set(stream: &mut TcpStream, key: &str, value: &str, cache: &mut HashMap<Strin
     println!("out: {:?}", result);
 }
 
-fn get(stream: &mut TcpStream, key: &str, cache: &HashMap<String, String>) {
+fn set_px(stream: &mut TcpStream, key: &str, value: &str, px: &str, cache: &mut HashMap<String, Cache>) {
+    cache.insert(key.to_string(), Cache::newpx(value.to_string(), px.parse::<i32>().unwrap()));
     println!("cache={:?}", cache);
-    let msg = match cache.get(&key.to_string()) {
-        Some(message) => {
-            let len = message.len();
-            format!("${len}\r\n{message}\r\n")
-        },
-        None => "$-1\r\n".to_string(),
-    };
+    let msg = format!("$2\r\nOK\r\n");
     println!("out: {msg}");
     let result = stream.write(msg.as_bytes());
     println!("out: {:?}", result);
+}
+
+fn get(stream: &mut TcpStream, key: &str, cache: &HashMap<String, Cache>) {
+    println!("cache={:?}", cache);
+    match cache.get(&key.to_string()) {
+        Some(cache) => {
+            if let Some(time) = cache.px {
+                if Instant::now() < time {
+                    let message = &cache.value;
+                    let len = message.len();
+                    let msg = format!("${len}\r\n{message}\r\n");
+                    println!("out: {msg}");
+                    let result = stream.write(msg.as_bytes());
+                    println!("out: {:?}", result);
+                } else {
+                    println!("key expired");
+                    let msg = "$-1\r\n".to_string();
+                    println!("out: {msg}");
+                    let result = stream.write(msg.as_bytes());
+                    println!("out: {:?}", result);
+                }
+            } else {
+                let message = &cache.value;
+                let len = message.len();
+                let msg = format!("${len}\r\n{message}\r\n");
+                println!("out: {msg}");
+                let result = stream.write(msg.as_bytes());
+                println!("out: {:?}", result);
+            }
+        },
+        None => {
+            println!("key not found");
+            let msg = "$-1\r\n".to_string();
+            println!("out: {msg}");
+            let result = stream.write(msg.as_bytes());
+            println!("out: {:?}", result);
+        }
+    }
 }
